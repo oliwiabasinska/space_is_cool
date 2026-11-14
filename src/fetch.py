@@ -25,10 +25,30 @@ API_ROOT = "https://power.larc.nasa.gov/api/temporal/monthly"
 PARAMETER = "T2M"
 FIRST_YEAR = 1981  # the API rejects earlier start years
 MIN_BOX_DEG = 2.0  # the regional endpoint rejects boxes smaller than this
+MAX_BOX_DEG = 10.0  # and boxes larger than this
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
 
 # Bounding box around Switzerland: lat_min, lat_max, lon_min, lon_max
 SWITZERLAND = (45.8, 47.8, 5.9, 10.5)
+
+
+def check_box(lat_min, lat_max, lon_min, lon_max) -> None:
+    """Raise a ValueError that explains what is wrong with a lat/lon box, if anything."""
+    if not (-90 <= lat_min <= 90 and -90 <= lat_max <= 90):
+        raise ValueError(f"Latitude must be between -90 and 90, got {lat_min} to {lat_max}.")
+    if not (-180 <= lon_min <= 180 and -180 <= lon_max <= 180):
+        raise ValueError(f"Longitude must be between -180 and 180, got {lon_min} to {lon_max}.")
+    if lat_min >= lat_max or lon_min >= lon_max:
+        raise ValueError(
+            "The box needs its minimum below its maximum in both directions, "
+            f"got latitude {lat_min} to {lat_max} and longitude {lon_min} to {lon_max}."
+        )
+    lat_span, lon_span = lat_max - lat_min, lon_max - lon_min
+    if lat_span > MAX_BOX_DEG + 1e-9 or lon_span > MAX_BOX_DEG + 1e-9:
+        raise ValueError(
+            f"The region is too large: NASA POWER serves at most {MAX_BOX_DEG:g} degrees "
+            f"in each direction, got {lat_span:g} of latitude and {lon_span:g} of longitude."
+        )
 
 
 def get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh=False) -> pd.DataFrame:
@@ -39,9 +59,12 @@ def get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh=False) -> 
     -999. start and end are years (1981) or dates ("1981-06"). Boxes smaller
     than 2 degrees on a side return the single grid cell at the box centre.
     """
+    check_box(lat_min, lat_max, lon_min, lon_max)
     start, end = pd.Period(str(start), "M"), _end_period(end)
     if start.year < FIRST_YEAR:
         raise ValueError(f"NASA POWER data starts in {FIRST_YEAR}, got start={start}")
+    if start > end:
+        raise ValueError(f"The start ({start}) is after the end ({end}).")
 
     years = {"start": start.year, "end": end.year}
     if lat_max - lat_min < MIN_BOX_DEG or lon_max - lon_min < MIN_BOX_DEG:
