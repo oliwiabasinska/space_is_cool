@@ -71,3 +71,105 @@ def test_drawn_rectangle_fills_the_fields(monkeypatch):
     app = start()
     assert [app.number_input(key=field).value for field in FIELDS] == [45.8, 47.8, 5.9, 10.5]
     assert "latitude 45.8 to 47.8" in app.success[0].value
+
+
+# --- Analyse button ----------------------------------------------------------
+
+def fake_analysis(calls):
+    """A stand-in for run.analyse_region that uses synthetic data, not NASA."""
+    import numpy as np
+    import pandas as pd
+
+    from src import analysis
+
+    def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how="max"):
+        calls.append((lat_min, lat_max, lon_min, lon_max, start, end, how))
+        if start > end:
+            raise ValueError(f"The start ({start}) is after the end ({end}).")
+        rng = np.random.default_rng(0)
+        dates = pd.date_range("1981-01-01", "2025-12-01", freq="MS")
+        t = np.arange(len(dates)) / 12
+        full = pd.Series(8 + 10 * np.sin(2 * np.pi * (dates.month - 4) / 12) + 0.05 * t
+                         + rng.normal(0, 0.5, len(dates)), index=dates, name="t2m_C")
+        series = full[str(start):str(end)]
+        years = series.index.year.max() - series.index.year.min() + 1
+        return {
+            "box_lat_lon": (lat_min, lat_max, lon_min, lon_max),
+            "start": f"{series.index.min():%Y-%m}", "end": f"{series.index.max():%Y-%m}",
+            "aggregation": how, "units": "degC", "grid_cells": 28,
+            "source": "fake source", "source_url": "http://example.invalid",
+            "anomaly_baseline": analysis.BASELINE,
+            "series": series, "anomalies": analysis.anomalies(full)[str(start):str(end)],
+            "trend": analysis.trend(series) if years >= 10 else None,
+            "trend_note": None if years >= 10 else f"A trend needs at least 10 years of data; this time frame has {years}.",
+        }
+
+    return analyse_region
+
+
+@pytest.fixture
+def analysed(monkeypatch):
+    import streamlit as st
+
+    from src import run
+
+    calls = []
+    monkeypatch.setattr(run, "analyse_region", fake_analysis(calls))
+    st.cache_data.clear()
+    yield calls
+    st.cache_data.clear()
+
+
+def test_analyse_is_disabled_until_a_valid_region_is_selected(analysed):
+    app = start()
+    assert app.button(key="analyse").disabled
+    app = type_box(app, (30.0, 60.0, 0.0, 10.0))
+    assert app.button(key="analyse").disabled
+    app = type_box(app, (45.8, 47.8, 5.9, 10.5))
+    assert not app.button(key="analyse").disabled
+
+
+def test_analyse_shows_the_trend_and_the_plot(analysed):
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    app.button(key="analyse").click().run()
+    assert not app.exception and not app.error
+    assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "max")]
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Change per decade"] == "+0.50 °C"
+    assert metrics["Statistically significant"].startswith("Yes")
+    assert len(app.get("plotly_chart")) == 1
+    assert any("warmed by about 0.50 °C per decade" in text.value for text in app.markdown)
+
+
+def test_time_frame_is_passed_on_and_a_short_one_gives_a_note(analysed):
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    app.number_input(key="start_year").set_value(2018)
+    app.number_input(key="end_year").set_value(2022)
+    app.button(key="analyse").click().run()
+    assert analysed[-1][4:6] == (2018, 2022)
+    assert "at least 10 years" in app.warning[0].value
+    assert not app.metric
+    assert len(app.get("plotly_chart")) == 1
+
+
+def test_analysis_errors_are_shown(analysed):
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    app.number_input(key="start_year").set_value(2020)
+    app.number_input(key="end_year").set_value(2010)
+    app.button(key="analyse").click().run()
+    assert "after the end" in app.error[0].value
+    assert not app.get("plotly_chart")
+
+
+def test_result_stays_after_other_interactions_and_clear_removes_it(analysed):
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    app.button(key="analyse").click().run()
+    app.number_input(key="end_year").set_value(2020).run()
+    assert len(app.get("plotly_chart")) == 1
+    app.button[0].click().run()
+    assert not app.get("plotly_chart")
+
+
+def pd_year():
+    import pandas as pd
+    return pd.Timestamp.now().year

@@ -66,3 +66,13 @@ def test_cell_trends_gives_one_row_per_cell():
     slopes = result.set_index("lat")["slope_per_decade"]
     assert slopes[46.0] == pytest.approx(0.2, abs=0.05)
     assert slopes[47.0] == pytest.approx(0.5, abs=0.05)
+
+
+def test_trend_line_has_the_given_slope_and_passes_through_the_middle():
+    series = synthetic(slope_per_year=0.03, noise=0.0)
+    values = analysis.anomalies(series)
+    line = analysis.trend_line(values, slope_per_decade=0.3)
+    assert len(line) == len(values)
+    assert line.iloc[12] - line.iloc[0] == pytest.approx(0.03)
+    # Anomalies move in yearly steps, so they sit within half a year of slope from the line.
+    assert (line - values).abs().max() < 0.02

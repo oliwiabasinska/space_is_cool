@@ -9,7 +9,12 @@ from plotly.colors import qualitative
 
 
 
-def build_time_series_figure(datasets: Mapping[str, pd.DataFrame]) -> go.Figure:
+def build_time_series_figure(
+    datasets: Mapping[str, pd.DataFrame],
+    title: str = "Time series by place",
+    y_title: str = "Value",
+    x_title: str | None = None,
+) -> go.Figure:
     """Plot one date-indexed or date-column dataframe for each place."""
     if not datasets:
         raise ValueError("At least one place dataframe is required.")
@@ -86,9 +91,9 @@ def build_time_series_figure(datasets: Mapping[str, pd.DataFrame]) -> go.Figure:
         )
 
     figure.update_layout(
-        title="Time series by place",
-        xaxis_title=f"Day: {start:%Y-%m-%d} to {end:%Y-%m-%d}",
-        yaxis_title="Value",
+        title=title,
+        xaxis_title=x_title if x_title is not None else f"Day: {start:%Y-%m-%d} to {end:%Y-%m-%d}",
+        yaxis_title=y_title,
         legend_title="Place",
         margin={"l": 60, "r": 30, "t": 60, "b": 90},
     )
@@ -102,5 +107,21 @@ def build_time_series_figure(datasets: Mapping[str, pd.DataFrame]) -> go.Figure:
         tickangle=-35,
         showgrid=True,
         gridcolor="#d9d9d9",
+    )
+    return figure
+
+
+def add_trend_line(figure: go.Figure, line: pd.Series, label: str, color: str = "black") -> go.Figure:
+    """Draw a straight trend line on top of a figure, and thin the data lines under it."""
+    figure.update_traces(line={"width": 1}, marker={"size": 3}, opacity=0.6)
+    figure.add_trace(
+        go.Scatter(
+            x=line.index,
+            y=line.to_numpy(),
+            name=label,
+            mode="lines",
+            line={"color": color, "width": 3},
+            hoverinfo="skip",
+        )
     )
     return figure

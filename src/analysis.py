@@ -36,6 +36,18 @@ def anomalies(series: pd.Series, baseline: tuple[int, int] = BASELINE) -> pd.Ser
     return result
 
 
+def trend_line(values: pd.Series, slope_per_decade: float) -> pd.Series:
+    """A straight line with the given slope, passing through the middle of the data.
+
+    Like Sen's method, the line goes through the median value at the median
+    date, so a few extreme months do not pull it up or down.
+    """
+    index = pd.DatetimeIndex(values.index)
+    years = index.year + (index.month - 0.5) / 12
+    line = values.median() + slope_per_decade / 10 * (years - np.median(years))
+    return pd.Series(np.asarray(line, dtype=float), index=index, name="trend")
+
+
 def trend(series: pd.Series, alpha: float = 0.05) -> dict:
     """Seasonal Mann-Kendall test and seasonal Sen's slope of a monthly series.
 
