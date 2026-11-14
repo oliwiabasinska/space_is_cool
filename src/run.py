@@ -1,7 +1,7 @@
 """Connect data fetching and statistical analysis. No plotting.
 
-analyse_region() does both steps for any lat/lon box and time frame. It is the
-one function an interface needs to call.
+analyse_region() does both steps for any lat/lon box, time frame and variable.
+It is the one function an interface needs to call.
 
 Running this file (`python -m src.run`) does it for Switzerland and saves:
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src import analysis, fetch
+from src import analysis, fetch, variables
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
@@ -27,22 +27,27 @@ OUTPUT_DIR = ROOT / "outputs"
 MIN_TREND_YEARS = 10  # shorter periods are too noisy for a climate trend
 
 
-def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how="max") -> dict:
-    """Fetch a region's monthly temperature and analyse it for a time frame.
+def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how=None,
+                   variable=variables.DEFAULT) -> dict:
+    """Fetch a region's monthly data for one variable and analyse it for a time frame.
 
     start and end are years (1990) or months ("1990-06"); leave them out for the
-    whole record. how="max" uses the warmest grid cell of the box each month,
-    how="mean" the area average.
+    whole record. variable is a key of variables.VARIABLES ("t2m", "t2m_max",
+    "precip"). how="max" uses the highest grid cell of the box each month,
+    how="mean" the area average; leave it out for the variable's usual choice.
 
     Returns a dictionary with:
-        series      monthly temperature in degrees Celsius, inside the time frame
+        series      monthly values inside the time frame
         anomalies   the same months minus the 1991-2020 average for that month
         trend       the numbers from analysis.trend(), or None if the time frame
                     is shorter than MIN_TREND_YEARS (trend_note then says why)
-        plus the box, time frame, aggregation, source and source URL.
+        plus the box, time frame, variable, aggregation, source and source URL.
 
-    Raises ValueError with a readable message for an invalid box or time frame.
+    Raises ValueError with a readable message for an invalid box, time frame
+    or variable.
     """
+    chosen = variables.get(variable)
+    how = chosen.how if how is None else how
     this_year = pd.Timestamp.now().year
     start = fetch.FIRST_YEAR if start is None else start
     end = this_year if end is None else end
@@ -55,12 +60,14 @@ def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how
 
     # Always fetch the whole record: the anomaly baseline needs 1991-2020 whatever
     # time frame is shown, and one cached answer then serves every time frame.
-    full = fetch.get_series(lat_min, lat_max, lon_min, lon_max, fetch.FIRST_YEAR, this_year, how=how)
+    full = fetch.get_series(lat_min, lat_max, lon_min, lon_max, fetch.FIRST_YEAR, this_year,
+                            how=how, parameter=chosen.parameter)
     in_frame = (full.index >= first.to_timestamp()) & (full.index <= last.to_timestamp())
     series = full[in_frame]
     if series.empty:
         raise ValueError(f"NASA has no data between {first} and {last} for this region.")
     anomalies = analysis.anomalies(full)[in_frame]
+    anomalies.name = f"{series.name}_anomaly"
 
     years = series.index.year.max() - series.index.year.min() + 1
     if years >= MIN_TREND_YEARS:
@@ -73,8 +80,12 @@ def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how
         "box_lat_lon": (lat_min, lat_max, lon_min, lon_max),
         "start": f"{series.index.min():%Y-%m}",
         "end": f"{series.index.max():%Y-%m}",
+        "variable": variable,
+        "variable_label": chosen.label,
+        "parameter": chosen.parameter,
         "aggregation": how,
-        "units": "degC",
+        "units": full.attrs.get("units"),
+        "unit_label": chosen.unit,
         "grid_cells": full.attrs.get("grid_cells"),
         "source": full.attrs.get("source"),
         "source_url": full.attrs.get("url"),
@@ -90,7 +101,7 @@ def main() -> None:
     DATA_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    result = analyse_region(*fetch.SWITZERLAND, how="max")
+    result = analyse_region(*fetch.SWITZERLAND, variable="t2m", how="max")
     series, anomalies = result["series"], result["anomalies"]
 
     cells = fetch.get_cells(*fetch.SWITZERLAND, fetch.FIRST_YEAR, pd.Timestamp.now().year)

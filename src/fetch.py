@@ -1,9 +1,11 @@
-"""Monthly 2 m air temperature time series from the NASA POWER API.
+"""Monthly climate time series from the NASA POWER API.
 
 Source: NASA POWER "Monthly and Annual" time-series API (no login needed)
         https://power.larc.nasa.gov/docs/services/api/temporal/monthly/
-Data:   T2M, temperature at 2 metres, from the MERRA-2 reanalysis
-        (model plus assimilated observations, not a direct satellite measurement).
+Data:   T2M (temperature at 2 metres) by default; any other POWER monthly
+        parameter can be asked for by name, see src/variables.py. These come
+        from the MERRA-2 reanalysis (model plus assimilated observations, not a
+        direct satellite measurement).
 Grid:   0.5 deg latitude x 0.625 deg longitude. Available from January 1981.
 
 Run `python -m src.fetch` to save two CSV files for Switzerland: the raw grid
@@ -51,10 +53,12 @@ def check_box(lat_min, lat_max, lon_min, lon_max) -> None:
         )
 
 
-def get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh=False) -> pd.DataFrame:
+def get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh=False,
+              parameter=PARAMETER) -> pd.DataFrame:
     """Raw NASA values, one row per grid cell per month, nothing averaged.
 
-    Columns: date, lat, lon, elevation_m, t2m_C. Values are exactly as NASA
+    Columns: date, lat, lon, elevation_m and the value, named after the
+    parameter and its unit (t2m_C for the default). Values are exactly as NASA
     serves them, except that months not published yet are empty instead of
     -999. start and end are years (1981) or dates ("1981-06"). Boxes smaller
     than 2 degrees on a side return the single grid cell at the box centre.
@@ -72,24 +76,26 @@ def get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh=False) -> 
             "latitude": (lat_min + lat_max) / 2,
             "longitude": (lon_min + lon_max) / 2,
             **years,
-        }, refresh)
+        }, refresh, parameter)
         features = [payload]
     else:
         payload, url = _request("regional", {
             "latitude-min": lat_min, "latitude-max": lat_max,
             "longitude-min": lon_min, "longitude-max": lon_max,
             **years,
-        }, refresh)
+        }, refresh, parameter)
         features = payload["features"]
 
-    cells = _to_table(features, payload["header"]["fill_value"])
+    described = payload["parameters"][parameter]
+    sources = payload["header"]["sources"]
+    cells = _to_table(features, payload["header"]["fill_value"], parameter, described["units"])
     cells = cells[(cells.date >= start.to_timestamp()) & (cells.date <= end.to_timestamp())]
     cells = cells.reset_index(drop=True)
     cells.attrs = {
-        "source": "NASA POWER Monthly API, " + ", ".join(payload["header"]["sources"]),
-        "variable": "Temperature at 2 Meters (T2M)",
-        "units": "degC",
-        "kind": "reanalysis",
+        "source": "NASA POWER Monthly API, " + ", ".join(sources),
+        "variable": f"{described['longname']} ({parameter})",
+        "units": "degC" if described["units"] == "C" else described["units"],
+        "kind": "reanalysis" if any("MERRA" in source for source in sources) else "other",
         "box": (lat_min, lat_max, lon_min, lon_max),
         "grid_cells": len(features),
         "url": url,
@@ -97,14 +103,15 @@ def get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh=False) -> 
     return cells
 
 
-def get_series(lat_min, lat_max, lon_min, lon_max, start, end, how="max", refresh=False) -> pd.Series:
-    """One monthly 2 m temperature value for a lat/lon box, in degrees Celsius.
+def get_series(lat_min, lat_max, lon_min, lon_max, start, end, how="max", refresh=False,
+               parameter=PARAMETER) -> pd.Series:
+    """One monthly value for a lat/lon box (2 m temperature in Celsius by default).
 
-    how="max" gives the warmest grid cell of the box in each month.
+    how="max" gives the highest grid cell of the box in each month.
     how="mean" gives the average of the cells, weighted by cos(latitude).
     Months that NASA has not published yet are left out.
     """
-    cells = get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh)
+    cells = get_cells(lat_min, lat_max, lon_min, lon_max, start, end, refresh, parameter)
     series = _aggregate(cells, how)
     series.attrs = {**cells.attrs, "aggregation": how}
     return series
@@ -116,9 +123,9 @@ def _end_period(end) -> pd.Period:
     return pd.Period(f"{text}-12", "M") if len(text) == 4 else pd.Period(text, "M")
 
 
-def _request(kind: str, params: dict, refresh: bool) -> tuple[dict, str]:
+def _request(kind: str, params: dict, refresh: bool, parameter: str = PARAMETER) -> tuple[dict, str]:
     """Call the API, keeping a copy of each answer on disk. Returns (answer, url)."""
-    params = {"parameters": PARAMETER, "community": "RE", "format": "JSON", **params}
+    params = {"parameters": parameter, "community": "RE", "format": "JSON", **params}
     key = hashlib.sha1(json.dumps([kind, params], sort_keys=True).encode()).hexdigest()[:16]
     cache_file = CACHE_DIR / f"power_{kind}_{key}.json"
     url = f"{API_ROOT}/{kind}?{urlencode(params)}"
@@ -134,34 +141,42 @@ def _request(kind: str, params: dict, refresh: bool) -> tuple[dict, str]:
     return payload, url
 
 
-def _to_table(features: list[dict], fill_value: float) -> pd.DataFrame:
-    """Turn the API answer into rows of date, lat, lon, elevation_m, t2m_C."""
+def _column_name(parameter: str, units: str) -> str:
+    """Name of the value column: parameter and unit, e.g. t2m_C or prectotcorr_mm_per_day."""
+    return f"{parameter.lower()}_{units.replace('/', '_per_').replace(' ', '')}"
+
+
+def _to_table(features: list[dict], fill_value: float, parameter: str = PARAMETER,
+              units: str = "C") -> pd.DataFrame:
+    """Turn the API answer into rows of date, lat, lon, elevation_m and the value."""
+    column = _column_name(parameter, units)
     rows = []
     for feature in features:
         lon, lat, elevation = feature["geometry"]["coordinates"]
-        for key, value in feature["properties"]["parameter"][PARAMETER].items():
+        for key, value in feature["properties"]["parameter"][parameter].items():
             if key[4:] == "13":  # keys are YYYYMM; "13" is the API's annual mean
                 continue
             rows.append((pd.Timestamp(f"{key[:4]}-{key[4:]}-01"), lat, lon, elevation, value))
-    table = pd.DataFrame(rows, columns=["date", "lat", "lon", "elevation_m", "t2m_C"])
-    table["t2m_C"] = table["t2m_C"].astype(float).replace(fill_value, float("nan"))
+    table = pd.DataFrame(rows, columns=["date", "lat", "lon", "elevation_m", column])
+    table[column] = table[column].astype(float).replace(fill_value, float("nan"))
     return table.sort_values(["date", "lat", "lon"], ignore_index=True)
 
 
 def _aggregate(cells: pd.DataFrame, how: str) -> pd.Series:
     """Reduce the grid cells to one value per month."""
+    column = cells.columns[-1]  # the value column, whatever the parameter
     # Keep only months where every cell has data.
-    complete = cells.groupby("date")["t2m_C"].transform(lambda v: v.notna().all())
+    complete = cells.groupby("date")[column].transform(lambda v: v.notna().all())
     cells = cells[complete]
     if how == "max":
-        series = cells.groupby("date")["t2m_C"].max()
+        series = cells.groupby("date")[column].max()
     elif how == "mean":
         weights = cells["lat"].map(lambda lat: math.cos(math.radians(lat)))
-        weighted = (cells["t2m_C"] * weights).groupby(cells["date"]).sum()
+        weighted = (cells[column] * weights).groupby(cells["date"]).sum()
         series = weighted / weights.groupby(cells["date"]).sum()
     else:
         raise ValueError(f"how must be 'max' or 'mean', got {how!r}")
-    series.name = "t2m_C"
+    series.name = column
     return series
 
 

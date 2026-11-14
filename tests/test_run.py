@@ -25,10 +25,13 @@ def fake_series(slope_per_year=0.05):
 def fake_nasa(monkeypatch):
     calls = []
 
-    def get_series(lat_min, lat_max, lon_min, lon_max, start, end, how="max", refresh=False):
+    def get_series(lat_min, lat_max, lon_min, lon_max, start, end, how="max", refresh=False,
+                   parameter="T2M"):
         fetch.check_box(lat_min, lat_max, lon_min, lon_max)
-        calls.append((start, end, how))
-        return fake_series()
+        calls.append((start, end, how, parameter))
+        series = fake_series()
+        series.attrs["units"] = "degC" if parameter.startswith("T2M") else "mm/day"
+        return series
 
     monkeypatch.setattr(fetch, "get_series", get_series)
     return calls
@@ -91,3 +94,30 @@ def test_invalid_time_frames_are_explained(fake_nasa):
 
 def test_largest_allowed_box_passes_the_check():
     fetch.check_box(40, 50, 0, 10)
+
+
+def test_default_variable_is_the_warmest_cell_of_average_temperature(fake_nasa):
+    result = run.analyse_region(*BOX)
+    assert fake_nasa[-1][2:] == ("max", "T2M")
+    assert (result["variable"], result["unit_label"], result["units"]) == ("t2m", "°C", "degC")
+
+
+@pytest.mark.parametrize("variable, parameter, how, unit", [
+    ("t2m_max", "T2M_MAX", "max", "°C"),
+    ("precip", "PRECTOTCORR", "mean", "mm/day"),
+])
+def test_each_variable_asks_nasa_for_its_parameter_and_aggregation(fake_nasa, variable, parameter, how, unit):
+    result = run.analyse_region(*BOX, variable=variable)
+    assert fake_nasa[-1][2:] == (how, parameter)
+    assert result["aggregation"] == how and result["unit_label"] == unit
+    assert result["trend"] is not None
+
+
+def test_aggregation_can_be_overridden(fake_nasa):
+    run.analyse_region(*BOX, variable="precip", how="max")
+    assert fake_nasa[-1][2:] == ("max", "PRECTOTCORR")
+
+
+def test_unknown_variable_is_explained(fake_nasa):
+    with pytest.raises(ValueError, match="Unknown variable"):
+        run.analyse_region(*BOX, variable="wind")

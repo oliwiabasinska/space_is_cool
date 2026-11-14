@@ -82,8 +82,12 @@ def fake_analysis(calls):
 
     from src import analysis
 
-    def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how="max"):
-        calls.append((lat_min, lat_max, lon_min, lon_max, start, end, how))
+    def analyse_region(lat_min, lat_max, lon_min, lon_max, start=None, end=None, how=None,
+                       variable="t2m"):
+        from src import variables
+        chosen = variables.get(variable)
+        how = how or chosen.how
+        calls.append((lat_min, lat_max, lon_min, lon_max, start, end, variable))
         if start > end:
             raise ValueError(f"The start ({start}) is after the end ({end}).")
         rng = np.random.default_rng(0)
@@ -96,7 +100,8 @@ def fake_analysis(calls):
         return {
             "box_lat_lon": (lat_min, lat_max, lon_min, lon_max),
             "start": f"{series.index.min():%Y-%m}", "end": f"{series.index.max():%Y-%m}",
-            "aggregation": how, "units": "degC", "grid_cells": 28,
+            "variable": variable, "variable_label": chosen.label, "parameter": chosen.parameter,
+            "aggregation": how, "units": "degC", "unit_label": chosen.unit, "grid_cells": 28,
             "source": "fake source", "source_url": "http://example.invalid",
             "anomaly_baseline": analysis.BASELINE,
             "series": series, "anomalies": analysis.anomalies(full)[str(start):str(end)],
@@ -133,7 +138,7 @@ def test_analyse_shows_the_trend_and_the_plot(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
     app.button(key="analyse").click().run()
     assert not app.exception and not app.error
-    assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "max")]
+    assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "t2m")]
     metrics = {metric.label: metric.value for metric in app.metric}
     assert metrics["Change per decade"] == "+0.50 °C"
     assert metrics["Statistically significant"].startswith("Yes")
@@ -173,3 +178,18 @@ def test_result_stays_after_other_interactions_and_clear_removes_it(analysed):
 def pd_year():
     import pandas as pd
     return pd.Timestamp.now().year
+
+
+def test_chosen_variable_is_analysed_and_worded_in_its_own_unit(analysed):
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    assert app.selectbox(key="variable").options == [
+        "Average temperature", "Maximum temperature", "Precipitation"]
+    app.selectbox(key="variable").set_value("precip")
+    app.button(key="analyse").click().run()
+    assert not app.exception and not app.error
+    assert analysed[-1][-1] == "precip"
+    assert app.subheader[0].value.startswith("Precipitation:")
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Change per decade"] == "+0.50 mm/day"
+    assert any("precipitation in this region increased by about 0.50 mm/day per decade" in text.value
+               for text in app.markdown)

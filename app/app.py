@@ -1,4 +1,4 @@
-"""Streamlit app: choose a region on the world map and see its temperature trend.
+"""Streamlit app: choose a region on the world map and see its climate trend.
 
 Run from the project folder with:
     python -m streamlit run app/app.py
@@ -16,7 +16,7 @@ import streamlit as st
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
-from src import analysis, fetch, plotting, run
+from src import analysis, fetch, plotting, run, variables
 from src.region import box_from_drawing
 
 # Session keys of the four coordinate fields, in the order fetch and run expect.
@@ -27,7 +27,7 @@ st.set_page_config(page_title="Earth System Trend Detective", layout="wide")
 st.title("Earth System Trend Detective")
 st.write(
     "Draw a rectangle on the map with the square button at the top left, "
-    "or type the coordinates below the map. Then choose a time frame and press Analyse."
+    "or type the coordinates below the map. Then choose a variable and a time frame and press Analyse."
 )
 
 state = st.session_state
@@ -58,9 +58,9 @@ def clear_selection():
 
 
 @st.cache_data(show_spinner=False)
-def cached_analysis(box, start, end):
-    """Fetch and analyse one region and time frame; repeats are answered from memory."""
-    return run.analyse_region(*box, start=start, end=end, how="max")
+def cached_analysis(box, start, end, variable):
+    """Fetch and analyse one region, time frame and variable; repeats are answered from memory."""
+    return run.analyse_region(*box, start=start, end=end, variable=variable)
 
 
 def p_text(p):
@@ -70,16 +70,16 @@ def p_text(p):
 def describe(result):
     """One plain sentence about the trend."""
     trend = result["trend"]
+    chosen = variables.get(result["variable"])
     period = f"Between {result['start']} and {result['end']}"
-    subject = "the warmest part of this region"
     if not trend["significant"]:
-        return f"{period}, {subject} shows no statistically significant temperature trend."
+        return f"{period}, {chosen.subject} shows no statistically significant trend."
     rate = abs(trend["slope_per_decade"])
-    verb = "warmed" if trend["slope_per_decade"] > 0 else "cooled"
+    verb = chosen.increase if trend["slope_per_decade"] > 0 else chosen.decrease
     years = trend["n_months"] / 12
     return (
-        f"{period}, {subject} {verb} by about {rate:.2f} °C per decade, "
-        f"roughly {rate * years / 10:.1f} °C over those {years:.0f} years."
+        f"{period}, {chosen.subject} {verb} by about {rate:.2f} {chosen.unit} per decade, "
+        f"roughly {rate * years / 10:.1f} {chosen.unit} over those {years:.0f} years."
     )
 
 
@@ -145,8 +145,12 @@ else:
                 "will come from the single NASA grid cell (about 50 km wide) at its centre."
             )
 
-# --- Time frame and Analyse button ---------------------------------------------
-start_column, end_column, button_column = st.columns([1, 1, 2], vertical_alignment="bottom")
+# --- Variable, time frame and Analyse button -----------------------------------
+variable_column, start_column, end_column, button_column = st.columns(
+    [2, 1, 1, 2], vertical_alignment="bottom")
+variable = variable_column.selectbox(
+    "Variable", options=list(variables.VARIABLES), key="variable",
+    format_func=lambda name: variables.VARIABLES[name].label)
 start_year = start_column.number_input("Start year", key="start_year", min_value=fetch.FIRST_YEAR,
                                        max_value=THIS_YEAR, value=fetch.FIRST_YEAR, step=1)
 end_year = end_column.number_input("End year", key="end_year", min_value=fetch.FIRST_YEAR,
@@ -154,7 +158,7 @@ end_year = end_column.number_input("End year", key="end_year", min_value=fetch.F
 if button_column.button("Analyse", key="analyse", type="primary", disabled=not box_is_valid):
     with st.spinner("Fetching NASA data and computing the trend..."):
         try:
-            state.result = cached_analysis(box, int(start_year), int(end_year))
+            state.result = cached_analysis(box, int(start_year), int(end_year), variable)
             state.result_error = None
         except (ValueError, RuntimeError, requests.RequestException) as problem:
             state.result = None
@@ -168,31 +172,36 @@ result = state.result
 if result:
     south, north, west, east = result["box_lat_lon"]
     trend = result["trend"]
+    chosen = variables.get(result["variable"])
+    unit = chosen.unit
     st.subheader(
-        f"Latitude {south:g} to {north:g}, longitude {west:g} to {east:g}, "
+        f"{chosen.label}: latitude {south:g} to {north:g}, longitude {west:g} to {east:g}, "
         f"{result['start']} to {result['end']}"
     )
 
     figure = plotting.build_time_series_figure(
         {"Monthly anomaly": result["anomalies"].to_frame()},
-        title="Temperature of the warmest grid cell, compared with normal",
+        title=chosen.title,
         y_title=f"Difference from the {result['anomaly_baseline'][0]}–{result['anomaly_baseline'][1]} "
-                "average for that month (°C)",
+                f"average for that month ({unit})",
         x_title="",
     )
     if trend:
         st.write(describe(result))
         slope = trend["slope_per_decade"]
+        # A line that is not statistically significant is drawn grey and says so.
+        label = f"Sen's slope: {slope:+.2f} {unit} per decade"
         plotting.add_trend_line(
             figure, analysis.trend_line(result["anomalies"], slope),
-            f"Trend (Sen's slope): {slope:+.2f} °C per decade",
+            f"Trend ({label})" if trend["significant"] else f"{label} (not significant)",
+            color="black" if trend["significant"] else "gray",
         )
         level = f"{trend['confidence_level']:.0%}"
         verdict = "Yes" if trend["significant"] else "No"
         metrics = st.columns(4)
-        metrics[0].metric("Change per decade", f"{slope:+.2f} °C")
+        metrics[0].metric("Change per decade", f"{slope:+.2f} {unit}")
         metrics[1].metric(f"Likely range ({level})",
-                          f"{trend['ci_low_per_decade']:+.2f} to {trend['ci_high_per_decade']:+.2f} °C")
+                          f"{trend['ci_low_per_decade']:+.2f} to {trend['ci_high_per_decade']:+.2f} {unit}")
         metrics[2].metric("Statistically significant",
                           f"{verdict} ({p_text(trend['p_value_autocorr'])})")
         metrics[3].metric("Months of data", trend["n_months"])
@@ -201,9 +210,9 @@ if result:
 
     st.plotly_chart(figure, key="trend_plot")
     st.caption(
-        f"Data: {result['source']} reanalysis, 2 m air temperature, [original NASA request]"
+        f"Data: {result['source']} reanalysis, variable {result['parameter']}, [original NASA request]"
         f"({result['source_url']}). A reanalysis is a weather model corrected with observations, "
-        "not a direct measurement. Each month shows the warmest NASA grid cell in the region "
+        f"not a direct measurement. {chosen.note} "
         f"({result['grid_cells']} cells, each about 50 km wide). "
         "Method: seasonal Mann-Kendall test and seasonal Sen's slope."
     )
