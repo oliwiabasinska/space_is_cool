@@ -24,7 +24,7 @@ Open the `.html` files in `outputs/` in a browser to see the figures.
 src/
   fetch.py      download monthly 2 m air temperature from the NASA POWER API
   trends.py     anomalies, seasonal Mann-Kendall test, Sen's slope
-  plots.py      Plotly figures: trend line, year-by-month heatmap, trend map
+  plotly_plots.py  Plotly figures: trend line, year-by-month heatmap, trend map
   analysis.py   runs everything for Switzerland and saves the results
 tests/          tests on synthetic data with a known answer
 data/           downloaded data (not in git, rebuilt by src.fetch)

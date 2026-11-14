@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src import fetch, plots, trends
+from src import fetch, plotly_plots, trends
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
@@ -58,11 +58,11 @@ def main() -> None:
     per_cell.to_csv(OUTPUT_DIR / "cell_trends.csv", index=False)
 
     figures = {
-        "trend.html": plots.trend_figure(
+        "trend.html": plotly_plots.trend_figure(
             maximum, summary, "Warmest grid cell of the Switzerland box, monthly"),
-        "anomaly_heatmap.html": plots.anomaly_heatmap(
+        "anomaly_heatmap.html": plotly_plots.anomaly_heatmap(
             maximum, "Warmest grid cell of the Switzerland box: every month since 1981"),
-        "cell_trend_map.html": plots.cell_trend_map(
+        "cell_trend_map.html": plotly_plots.cell_trend_map(
             per_cell, f"Where it is warming fastest, {summary['start'][:4]}–{summary['end'][:4]}"),
     }
     for name, figure in figures.items():
