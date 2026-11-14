@@ -1,3 +1,6 @@
 pandas
 requests
+scipy
+pymannkendall
+plotly
 pytest
