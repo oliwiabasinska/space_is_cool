@@ -4,3 +4,6 @@ scipy
 pymannkendall
 pytest
 matplotlib
+streamlit_folium
+folium
+streamlit
