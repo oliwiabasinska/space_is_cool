@@ -11,24 +11,24 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-python -m src.fetch       # download the Switzerland data into data/
-python -m src.analysis    # run the trend analysis, results go to outputs/
+python -m src.run         # fetch the Switzerland data and run the analysis
 python -m pytest          # run the tests
 ```
 
-Open the `.html` files in `outputs/` in a browser to see the figures.
+`src.run` saves the NASA data to `data/` and the computed results to `outputs/`.
+It does no plotting.
 
 ## Structure
 
 ```
 src/
-  fetch.py      download monthly 2 m air temperature from the NASA POWER API
-  trends.py     anomalies, seasonal Mann-Kendall test, Sen's slope
-  plotly_plots.py  Plotly figures: trend line, year-by-month heatmap, trend map
-  analysis.py   runs everything for Switzerland and saves the results
+  fetch.py      data fetching: monthly 2 m air temperature from the NASA POWER API
+  analysis.py   statistics: anomalies, seasonal Mann-Kendall test, Sen's slope
+  run.py        fetch, then analyse, then save the results
+  plot.py       matplotlib plot of the annual maximum temperature
 tests/          tests on synthetic data with a known answer
-data/           downloaded data (not in git, rebuilt by src.fetch)
-outputs/        results and figures (not in git, rebuilt by src.analysis)
+data/           downloaded data (not in git, rebuilt by src.run)
+outputs/        analysis results (not in git, rebuilt by src.run)
 ```
 
 ## Data and method

@@ -1,77 +1,112 @@
-"""Run the trend analysis for Switzerland and save the results.
+"""Trend statistics for monthly temperature series.
 
-Reads the two CSV files written by `python -m src.fetch` (and downloads them
-first if they are missing), then writes to the outputs/ folder:
-
-    trend_summary.json     trend of the monthly maximum series
-    cell_trends.csv        trend of each grid cell
-    trend.html             anomalies with the Sen's slope line
-    anomaly_heatmap.html   year by month grid of anomalies
-    cell_trend_map.html    map of the trend per grid cell
-
-Run with `python -m src.analysis`.
+Method: seasonal Mann-Kendall test (is there a trend?) with the seasonal Sen's
+slope (how big is it?). Both compare each calendar month only with the same
+month in other years, so the summer-winter cycle cannot be mistaken for a trend.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
+import numpy as np
 import pandas as pd
+import pymannkendall as mk
+from scipy.stats import norm
 
-from src import fetch, plotly_plots, trends
-
-ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
-OUTPUT_DIR = ROOT / "outputs"
-MAX_FILE = DATA_DIR / "switzerland_t2m_monthly_max.csv"
-RAW_FILE = DATA_DIR / "switzerland_t2m_cells_raw.csv"
+BASELINE = (1991, 2020)  # the current WMO standard reference period
 
 
-def load_data() -> tuple[pd.Series, pd.DataFrame]:
-    """The monthly maximum series and the raw cell table, downloading if needed."""
-    if not (MAX_FILE.exists() and RAW_FILE.exists()):
-        this_year = pd.Timestamp.now().year
-        DATA_DIR.mkdir(exist_ok=True)
-        fetch.get_cells(*fetch.SWITZERLAND, fetch.FIRST_YEAR, this_year).to_csv(RAW_FILE, index=False)
-        fetch.get_series(*fetch.SWITZERLAND, fetch.FIRST_YEAR, this_year, how="max").to_csv(MAX_FILE)
-    maximum = pd.read_csv(MAX_FILE, index_col="date", parse_dates=True)["t2m_C"]
-    cells = pd.read_csv(RAW_FILE, parse_dates=["date"])
-    return maximum, cells
+def year_month_table(series: pd.Series) -> pd.DataFrame:
+    """Reshape a monthly series into rows of years and columns of months 1-12."""
+    index = pd.DatetimeIndex(series.index)
+    table = pd.Series(series.to_numpy(dtype=float), index=[index.year, index.month]).unstack()
+    table = table.reindex(columns=range(1, 13))
+    table.index.name, table.columns.name = "year", "month"
+    return table
 
 
-def main() -> None:
-    maximum, cells = load_data()
-    OUTPUT_DIR.mkdir(exist_ok=True)
+def anomalies(series: pd.Series, baseline: tuple[int, int] = BASELINE) -> pd.Series:
+    """Each month minus the baseline-period average for that calendar month."""
+    index = pd.DatetimeIndex(series.index)
+    in_baseline = (index.year >= baseline[0]) & (index.year <= baseline[1])
+    if not in_baseline.any():
+        raise ValueError(f"no data inside the baseline period {baseline}")
+    normal = series[in_baseline].groupby(index.month[in_baseline]).mean()
+    result = series - normal.reindex(index.month).to_numpy()
+    result.name = "anomaly_C"
+    return result
 
-    summary = trends.trend(maximum)
-    summary = {
-        "series": "Monthly 2 m air temperature of the warmest grid cell in the Switzerland box",
-        "box_lat_lon": fetch.SWITZERLAND,
-        "units": "degC",
-        "source": "NASA POWER Monthly API (MERRA-2 reanalysis)",
-        **summary,
+
+def trend(series: pd.Series, alpha: float = 0.05) -> dict:
+    """Seasonal Mann-Kendall test and seasonal Sen's slope of a monthly series.
+
+    Returns the slope in units per decade with its confidence interval, and two
+    p-values: the standard one, and a stricter one that allows for neighbouring
+    months being correlated. "significant" uses the stricter one.
+    """
+    table = year_month_table(series)
+    values = table.to_numpy()
+    test = mk.seasonal_test(values, period=12, alpha=alpha)
+    strict = mk.correlated_seasonal_test(values, period=12, alpha=alpha)
+    slope, low, high = _sens_slope_with_interval(table, float(test.var_s), alpha)
+
+    years = table.index.max() - table.index.min() + 1
+    return {
+        "method": "seasonal Mann-Kendall test, seasonal Sen's slope",
+        "start": f"{pd.DatetimeIndex(series.index).min():%Y-%m}",
+        "end": f"{pd.DatetimeIndex(series.index).max():%Y-%m}",
+        "n_months": int(np.isfinite(values).sum()),
+        "n_years": int(years),
+        "slope_per_decade": slope * 10,
+        "ci_low_per_decade": low * 10,
+        "ci_high_per_decade": high * 10,
+        "confidence_level": 1 - alpha,
+        "tau": float(test.Tau),
+        "p_value": float(test.p),
+        "p_value_autocorr": float(strict.p),
+        "significant": bool(strict.p < alpha),
+        "direction": strict.trend,
     }
-    (OUTPUT_DIR / "trend_summary.json").write_text(json.dumps(summary, indent=2))
-
-    per_cell = trends.cell_trends(cells)
-    per_cell.to_csv(OUTPUT_DIR / "cell_trends.csv", index=False)
-
-    figures = {
-        "trend.html": plotly_plots.trend_figure(
-            maximum, summary, "Warmest grid cell of the Switzerland box, monthly"),
-        "anomaly_heatmap.html": plotly_plots.anomaly_heatmap(
-            maximum, "Warmest grid cell of the Switzerland box: every month since 1981"),
-        "cell_trend_map.html": plotly_plots.cell_trend_map(
-            per_cell, f"Where it is warming fastest, {summary['start'][:4]}–{summary['end'][:4]}"),
-    }
-    for name, figure in figures.items():
-        figure.write_html(OUTPUT_DIR / name, include_plotlyjs="cdn")
-
-    print(json.dumps(summary, indent=2))
-    print(per_cell.round(3).to_string(index=False))
-    print(f"saved {len(figures) + 2} files to {OUTPUT_DIR}")
 
 
-if __name__ == "__main__":
-    main()
+def cell_trends(cells: pd.DataFrame, value: str = "t2m_C", alpha: float = 0.05) -> pd.DataFrame:
+    """Run trend() separately on every grid cell of a raw cell table."""
+    rows = []
+    for (lat, lon), cell in cells.groupby(["lat", "lon"]):
+        series = cell.set_index(pd.to_datetime(cell["date"]))[value]
+        result = trend(series, alpha)
+        rows.append({
+            "lat": lat,
+            "lon": lon,
+            "elevation_m": cell["elevation_m"].iloc[0] if "elevation_m" in cell else np.nan,
+            **{k: result[k] for k in (
+                "slope_per_decade", "ci_low_per_decade", "ci_high_per_decade",
+                "p_value", "p_value_autocorr", "significant",
+            )},
+        })
+    return pd.DataFrame(rows)
+
+
+def _sens_slope_with_interval(table: pd.DataFrame, var_s: float, alpha: float):
+    """Seasonal Sen's slope per year, with its confidence interval (Gilbert 1987).
+
+    The slope is the median of the change per year between every pair of years,
+    taken month by month. The interval picks the slopes ranked a distance of
+    z * sqrt(var_s) / 2 on each side of the median.
+    """
+    years = table.index.to_numpy(dtype=float)
+    first, second = np.triu_indices(len(years), k=1)
+    slopes = []
+    for month in table.columns:
+        column = table[month].to_numpy()
+        pair = (column[second] - column[first]) / (years[second] - years[first])
+        slopes.append(pair[np.isfinite(pair)])
+    slopes = np.sort(np.concatenate(slopes))
+    if len(slopes) == 0:
+        return np.nan, np.nan, np.nan
+
+    half_width = norm.ppf(1 - alpha / 2) * np.sqrt(var_s)
+    low_rank = int(round((len(slopes) - half_width) / 2)) - 1
+    high_rank = int(round((len(slopes) + half_width) / 2))
+    low = slopes[max(low_rank, 0)]
+    high = slopes[min(high_rank, len(slopes) - 1)]
+    return float(np.median(slopes)), float(low), float(high)
