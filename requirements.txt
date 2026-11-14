@@ -1,4 +1,6 @@
 pandas
 requests
+scipy
+pymannkendall
 pytest
 matplotlib
