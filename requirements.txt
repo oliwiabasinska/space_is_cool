@@ -1,3 +1,6 @@
 pandas
 requests
 pytest
+streamlit_folium
+folium
+streamlit
