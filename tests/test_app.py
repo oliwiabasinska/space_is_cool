@@ -92,6 +92,27 @@ def test_map_script_draws_on_double_click_and_makes_the_region_resizable():
     assert "editing.enable()" in selected and 'map.fire("draw:created"' in selected
 
 
+def test_dark_basemap_draws_outlines_and_names_from_the_files_the_app_serves():
+    import json
+
+    import folium
+
+    from src.map_selector import OUTLINES, DarkBasemap
+
+    world = folium.Map(tiles=None)
+    DarkBasemap().add_to(world)
+    script = streamlit_folium._get_map_string(world)
+    assert "tileLayer" not in script  # no outside map tiles: the basemap is all our own files
+    for name in ("land", "borders", "labels"):
+        assert f'pane("{name}"' in script
+        local = OUTLINES[name][0]
+        assert local in script and local.startswith("/app/static/")
+        data = json.loads((Path(APP).parent / "static" / local.rsplit("/", 1)[1]).read_text(encoding="utf-8"))
+        assert data["features"] if name != "labels" else data["countries"] and data["cities"]
+    config = (Path(APP).parent.parent / ".streamlit" / "config.toml").read_text(encoding="utf-8")
+    assert "enableStaticServing = true" in config
+
+
 # --- Automatic analysis --------------------------------------------------------
 
 def fake_analysis(calls):
