@@ -1,4 +1,4 @@
-"""Streamlit app: choose a region on the world map and see its climate trend.
+"""Streamlit app: a landing page, then choose a region on the world map and see its climate trend.
 
 Run from the project folder with:
     python -m streamlit run app/app.py
@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so `src` can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # so sibling app modules can be imported
 
 import folium
 import pandas as pd
@@ -16,6 +17,7 @@ import streamlit as st
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
+from app_landing import render_landing_page
 from src import analysis, fetch, plotting, run, variables
 from src.map_selector import DarkBasemap, RegionSelector
 from src.region import box_from_drawing
@@ -25,6 +27,13 @@ FIELDS = ("lat_min", "lat_max", "lon_min", "lon_max")
 THIS_YEAR = pd.Timestamp.now().year
 
 st.set_page_config(page_title="Earth System Trend Detective", layout="wide")
+state = st.session_state
+state.setdefault("page", "landing")
+
+if state.page == "landing":
+    render_landing_page()
+    st.stop()
+
 st.title("Earth System Trend Detective")
 st.write(
     "Double-click the map, then drag to draw a region; drag its corners to resize it. "
@@ -32,7 +41,6 @@ st.write(
     "and updates whenever you change the region, the variable or the time frame."
 )
 
-state = st.session_state
 state.setdefault("map_version", 0)
 for field in FIELDS:
     state.setdefault(field, None)

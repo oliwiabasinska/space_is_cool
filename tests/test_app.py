@@ -15,10 +15,30 @@ APP = str(Path(__file__).resolve().parent.parent / "app" / "app.py")
 FIELDS = ("lat_min", "lat_max", "lon_min", "lon_max")
 
 
-def start():
+def landing():
     app = AppTest.from_file(APP, default_timeout=60).run()
     assert not app.exception
     return app
+
+
+def start():
+    """The analysis page, reached by pressing Explore on the landing page."""
+    app = landing().button(key="explore_button").click().run()
+    assert not app.exception
+    return app
+
+
+def test_app_opens_on_the_landing_page():
+    app = landing()
+    assert [button.label for button in app.button] == ["Explore"]
+    assert not app.title and not app.number_input and not app.info
+
+
+def test_explore_leads_to_the_analysis_page():
+    app = start()
+    assert app.title[0].value == "Earth System Trend Detective"
+    assert [button.label for button in app.button] == ["Clear selection"]
+    assert len(app.number_input) == 6
 
 
 def type_box(app, box):
