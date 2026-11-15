@@ -4,23 +4,9 @@ import base64
 import html
 import re
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import streamlit as st
 import streamlit.components.v1 as components
-
-
-def _explore_url(current_url: str | None) -> str:
-    """Keep the current Streamlit app path and add its Explore route."""
-    if not current_url:
-        return "/?view=explore"
-
-    parsed_url = urlsplit(current_url)
-    query = dict(parse_qsl(parsed_url.query, keep_blank_values=True))
-    query["view"] = "explore"
-    return urlunsplit(
-        (parsed_url.scheme, parsed_url.netloc, parsed_url.path, urlencode(query), "")
-    )
 
 
 def _paris_popup_content():
@@ -89,9 +75,14 @@ def _paris_popup_content():
 
 
 def render_landing_page():
-    """Render the full-screen map landing page and its Explore button."""
+    """Render the full-screen map landing page and its Explore button.
+
+    Explore is a real Streamlit button, because the map's frame is sandboxed and
+    cannot navigate the page itself. The button stays hidden until the map's
+    script marks the page as "paris-visited" (a class on <body>), which it does
+    two seconds after the Paris marker is first clicked.
+    """
     paris_popup_content = _paris_popup_content()
-    explore_url = _explore_url(st.context.url)
 
     st.markdown(
         """
@@ -138,6 +129,44 @@ def render_landing_page():
             width: 100%;
             height: 100%;
             border: 0;
+          }
+          .st-key-explore_button {
+            display: none;
+            position: fixed;
+            left: clamp(18px, 3vw, 48px);
+            bottom: clamp(18px, 3vh, 40px);
+            z-index: 10;
+            width: auto !important;
+            height: auto !important;
+            margin: 0;
+          }
+          body.paris-visited .st-key-explore_button {
+            display: block;
+          }
+          .st-key-explore_button button,
+          .st-key-explore_button button:hover,
+          .st-key-explore_button button:active,
+          .st-key-explore_button button:focus {
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            padding: 0;
+            min-height: 0;
+            cursor: pointer;
+          }
+          .st-key-explore_button button p {
+            color: transparent;
+            -webkit-text-fill-color: transparent;
+            -webkit-text-stroke: 2px #ff3030;
+            text-shadow: 0 0 8px #ff2020, 0 0 20px #ff2020;
+            font-size: 40pt;
+            font-weight: 700;
+            line-height: 1.2;
+            white-space: nowrap;
+          }
+          .st-key-explore_button button:hover p {
+            -webkit-text-stroke-color: #ff6666;
+            text-shadow: 0 0 10px #ff2020, 0 0 24px #ff2020;
           }
         </style>
         """,
@@ -250,26 +279,6 @@ def render_landing_page():
             }
             #paris-panel .more-information { clear: both; padding-top: 10px; }
             #paris-panel a { color: #b7d9ff; overflow-wrap: anywhere; }
-            #explore-link {
-              display: none;
-              position: fixed;
-              z-index: 1300;
-              left: clamp(18px, 3vw, 48px);
-              bottom: clamp(18px, 3vh, 40px);
-              color: transparent;
-              -webkit-text-fill-color: transparent;
-              -webkit-text-stroke: 2px #ff3030;
-              text-shadow: 0 0 8px #ff2020, 0 0 20px #ff2020;
-              font-size: 40pt;
-              font-weight: 700;
-              line-height: 1.2;
-              text-decoration: none;
-              cursor: pointer;
-            }
-            #explore-link:hover {
-              -webkit-text-stroke-color: #ff6666;
-              text-shadow: 0 0 10px #ff2020, 0 0 24px #ff2020;
-            }
             @media (max-width: 800px) {
               #paris-panel {
                 right: 12px;
@@ -320,7 +329,6 @@ def render_landing_page():
             <button type="button" class="panel-close" aria-label="Close Paris information">&times;</button>
             __PARIS_POPUP_CONTENT__
           </div>
-          <a id="explore-link" href="__EXPLORE_URL__" target="_top">Explore&nbsp;→</a>
           <div id="map-error"></div>
           <script>
             const map = L.map("world-map", {
@@ -328,9 +336,17 @@ def render_landing_page():
             });
             window.addEventListener("resize", () => map.invalidateSize());
             window.setTimeout(() => map.invalidateSize(), 100);
-            const exploreLink = document.getElementById("explore-link");
+            // The Explore button lives in the Streamlit page around this frame;
+            // marking that page's <body> is what makes it appear.
+            function showExplore() {
+              try {
+                window.parent.document.body.classList.add("paris-visited");
+              } catch (error) {
+                console.error("Could not reveal the Explore button:", error);
+              }
+            }
             if (sessionStorage.getItem("parisVisited") === "true") {
-              exploreLink.style.display = "block";
+              showExplore();
             }
             const laserIcon = L.divIcon({
               className: "laser-marker",
@@ -349,11 +365,9 @@ def render_landing_page():
                 document.getElementById("paris-panel").style.display = "block";
                 if (sessionStorage.getItem("parisVisited") !== "true") {
                   sessionStorage.setItem("parisVisited", "true");
-                  window.setTimeout(() => {
-                    exploreLink.style.display = "block";
-                  }, 2000);
+                  window.setTimeout(showExplore, 2000);
                 } else {
-                  exploreLink.style.display = "block";
+                  showExplore();
                 }
               })
               .addTo(map);
@@ -387,8 +401,10 @@ def render_landing_page():
           </script>
         </body>
         </html>
-        """.replace("__PARIS_POPUP_CONTENT__", paris_popup_content)
-        .replace("__EXPLORE_URL__", html.escape(explore_url, quote=True)),
+        """.replace("__PARIS_POPUP_CONTENT__", paris_popup_content),
         height=800,
         scrolling=False,
     )
+    if st.button("Explore →", key="explore_button"):
+        st.session_state.page = "explore"
+        st.rerun()
