@@ -1,4 +1,4 @@
-"""Streamlit app: choose a region on the world map and see its climate trend.
+"""Streamlit app: a landing page, then choose a region on the world map and see its climate trend.
 
 Run from the project folder with:
     python -m streamlit run app/app.py
@@ -14,12 +14,12 @@ import folium
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
 from app_landing import render_landing_page
 from src import analysis, fetch, plotting, run, variables
+from src.map_selector import DarkBasemap, RegionSelector
 from src.region import box_from_drawing
 
 # Session keys of the four coordinate fields, in the order fetch and run expect.
@@ -36,14 +36,12 @@ if state.page == "landing":
 
 st.title("Earth System Trend Detective")
 st.write(
-    "Draw a rectangle on the map with the square button at the top left, "
-    "or type the coordinates below the map. Then choose a variable and a time frame and press Analyse."
+    "Double-click the map, then drag to draw a region; drag its corners to resize it. "
+    "You can also type the coordinates below the map. The analysis starts on its own "
+    "and updates whenever you change the region, the variable or the time frame."
 )
 
-state = st.session_state
 state.setdefault("map_version", 0)
-state.setdefault("result", None)
-state.setdefault("result_error", None)
 for field in FIELDS:
     state.setdefault(field, None)
 
@@ -62,8 +60,6 @@ def redraw_map():
 def clear_selection():
     for field in FIELDS:
         state[field] = None
-    state.result = None
-    state.result_error = None
     redraw_map()
 
 
@@ -94,21 +90,23 @@ def describe(result):
 
 
 # --- Map ---------------------------------------------------------------------
-world = folium.Map(location=[20, 0], zoom_start=2)
+world = folium.Map(location=[20, 0], zoom_start=2, min_zoom=2, max_zoom=8, tiles=None)
+DarkBasemap().add_to(world)
+# Draw is added only for its drawing code; with every shape off it shows no toolbar.
 Draw(
     draw_options={
-        "rectangle": True, "polyline": False, "polygon": False,
+        "rectangle": False, "polyline": False, "polygon": False,
         "circle": False, "marker": False, "circlemarker": False,
     },
     edit_options={"edit": False, "remove": False},
 ).add_to(world)
 
 box = selected_box()
+corners = None
 if box and box[0] < box[1] and box[2] < box[3]:
     corners = [[box[0], box[2]], [box[1], box[3]]]
-    folium.Rectangle(corners, color="#d62728", fill=True, fill_opacity=0.15,
-                     tooltip="Selected region").add_to(world)
     world.fit_bounds(corners, padding=(80, 80))
+RegionSelector(corners).add_to(world)
 
 map_data = st_folium(
     world, key=f"map_{state.map_version}", height=480, use_container_width=True,
@@ -155,9 +153,8 @@ else:
                 "will come from the single NASA grid cell (about 50 km wide) at its centre."
             )
 
-# --- Variable, time frame and Analyse button -----------------------------------
-variable_column, start_column, end_column, button_column = st.columns(
-    [2, 1, 1, 2], vertical_alignment="bottom")
+# --- Variable and time frame ---------------------------------------------------
+variable_column, start_column, end_column = st.columns([2, 1, 1])
 variable = variable_column.selectbox(
     "Variable", options=list(variables.VARIABLES), key="variable",
     format_func=lambda name: variables.VARIABLES[name].label)
@@ -165,20 +162,16 @@ start_year = start_column.number_input("Start year", key="start_year", min_value
                                        max_value=THIS_YEAR, value=fetch.FIRST_YEAR, step=1)
 end_year = end_column.number_input("End year", key="end_year", min_value=fetch.FIRST_YEAR,
                                    max_value=THIS_YEAR, value=THIS_YEAR, step=1)
-if button_column.button("Analyse", key="analyse", type="primary", disabled=not box_is_valid):
+
+# --- Analysis: runs by itself for the current region, variable and time frame --
+result = None
+if box_is_valid:
     with st.spinner("Fetching NASA data and computing the trend..."):
         try:
-            state.result = cached_analysis(box, int(start_year), int(end_year), variable)
-            state.result_error = None
+            result = cached_analysis(box, int(start_year), int(end_year), variable)
         except (ValueError, RuntimeError, requests.RequestException) as problem:
-            state.result = None
-            state.result_error = str(problem)
+            st.error(str(problem))
 
-# --- Analysis result -----------------------------------------------------------
-if state.result_error:
-    st.error(state.result_error)
-
-result = state.result
 if result:
     south, north, west, east = result["box_lat_lon"]
     trend = result["trend"]

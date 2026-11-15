@@ -1,0 +1,3 @@
+[server]
+# Serves app/static (the map outlines) at /app/static.
+enableStaticServing = true
