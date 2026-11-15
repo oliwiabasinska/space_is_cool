@@ -1,5 +1,5 @@
 CLAUDE.md
-data/
+data/cache/
 __pycache__/
 .pytest_cache/
 .vscode/
@@ -8,3 +8,5 @@ space_environment/
 .venv/
 *.png
 PLAN.md
+app/__pycache__/
+src/__pycache__/
