@@ -61,3 +61,19 @@ def test_start_before_1981_is_rejected():
 def test_bare_end_year_means_december():
     assert str(fetch._end_period(2025)) == "2025-12"
     assert str(fetch._end_period("2025-06")) == "2025-06"
+
+
+def test_other_parameters_get_their_own_value_column():
+    feature = {
+        "geometry": {"coordinates": [8.0, 46.0, 500.0]},
+        "properties": {"parameter": {"PRECTOTCORR": {"202001": 2.5, "202013": 3.0}}},
+    }
+    cells = fetch._to_table([feature], -999.0, "PRECTOTCORR", "mm/day")
+    assert cells.columns[-1] == "prectotcorr_mm_per_day"
+    series = fetch._aggregate(cells, "mean")
+    assert series.name == "prectotcorr_mm_per_day" and series.tolist() == [2.5]
+
+
+def test_default_value_column_is_unchanged():
+    assert fetch._column_name("T2M", "C") == "t2m_C"
+    assert fetch._column_name("T2M_MAX", "C") == "t2m_max_C"

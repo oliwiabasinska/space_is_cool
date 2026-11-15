@@ -5,4 +5,6 @@ __pycache__/
 .vscode/
 outputs/
 space_environment/
+.venv/
 *.png
+PLAN.md
