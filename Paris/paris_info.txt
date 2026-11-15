@@ -1,0 +1,29 @@
+Paris is getting hotter: A changing summer
+
+For decades, Paris has been known for its beautiful summer days, when
+people could relax along the Seine and enjoy the sunshine.
+
+However, temperatures in Paris have been rising over time. Our
+temperature data from 1981 to 2026 shows an increase in the highest
+monthly temperatures. The trend line indicates an increase of
+approximately 0.54°C per decade.
+
+This change has become particularly noticeable in recent years. During
+summer 2026, Paris experienced several extreme heatwaves. On 24 June,
+temperatures reached around 40°C in parts of the city, and July became
+the hottest July ever recorded in Paris.
+
+----------------------------------------------------------------
+
+Photo dates: 
+
+'before.jpeg': May 2017
+'after.jpeg': August 2022
+
+------------------------------------------------------------------------
+
+Useful news article from Le Monde
+
+Title: France records its hottest day ever, with relief on the horizon
+Author: Audrey Garric Published: 25 June 2026 Link:
+https://www.lemonde.fr/en/environment/article/2026/06/25/france-records-its-hottest-day-with-relief-on-the-horizon_6754845_114.html
