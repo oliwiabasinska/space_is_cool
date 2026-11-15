@@ -156,6 +156,7 @@ def fake_analysis(calls):
         full = pd.Series(8 + 10 * np.sin(2 * np.pi * (dates.month - 4) / 12) + 0.05 * t
                          + rng.normal(0, 0.5, len(dates)), index=dates, name="t2m_C")
         series = full[str(start):str(end)]
+        series.name = variable
         years = series.index.year.max() - series.index.year.min() + 1
         return {
             "box_lat_lon": (lat_min, lat_max, lon_min, lon_max),
@@ -186,11 +187,14 @@ def analysed(monkeypatch):
 
 
 def test_nothing_is_analysed_until_a_valid_region_is_selected(analysed):
+    from src import variables
+
     app = start()
     app = type_box(app, (30.0, 60.0, 0.0, 10.0))
     assert analysed == [] and not app.get("plotly_chart")
     app = type_box(app, (45.8, 47.8, 5.9, 10.5))
-    assert len(analysed) == 1 and len(app.get("plotly_chart")) == 1
+    assert len(analysed) == len(variables.VARIABLES)
+    assert len(app.get("plotly_chart")) == 1
 
 
 def test_there_is_no_analyse_button(analysed):
@@ -205,19 +209,69 @@ def test_drawn_rectangle_is_analysed_without_a_click(analysed, monkeypatch):
         streamlit_folium, "st_folium",
         lambda figure, key=None, **options: {"last_active_drawing": drawing if key == "map_0" else None})
     app = start()
-    assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "t2m")]
+    assert analysed == [
+        (45.8, 47.8, 5.9, 10.5, 1981, pd_year(), name)
+        for name in ("t2m", "t2m_max", "precip")
+    ]
     assert len(app.get("plotly_chart")) == 1
 
 
 def test_selected_region_shows_the_trend_and_the_plot(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
     assert not app.exception and not app.error
-    assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "t2m")]
-    metrics = {metric.label: metric.value for metric in app.metric}
-    assert metrics["Change per decade"] == "+0.50 °C"
-    assert metrics["Statistically significant"].startswith("Yes")
+    assert analysed == [
+        (45.8, 47.8, 5.9, 10.5, 1981, pd_year(), name)
+        for name in ("t2m", "t2m_max", "precip")
+    ]
+    markdown = [element.value for element in app.markdown]
+    assert any("Climate Investigation" in text for text in markdown)
+    assert any("Is the region getting warmer?" in text for text in markdown)
+    assert any("Estimated trend" in text and "+0.50 °C" in text for text in markdown)
+    assert any("Evidence detected" in text and "upward trend" in text for text in markdown)
+    assert any("average temperature in the warmest part" in text for text in markdown)
     assert len(app.get("plotly_chart")) == 1
-    assert any("warmed by about 0.50 °C per decade" in text.value for text in app.markdown)
+    assert "tonexty" in app.get("plotly_chart")[0].proto.spec
+    assert "Highest anomaly" in app.get("plotly_chart")[0].proto.spec
+
+
+def test_variable_with_strongest_evidence_is_selected_first(analysed, monkeypatch):
+    from src import analysis
+
+    original_trend = analysis.trend
+    p_values = {"t2m": 0.04, "t2m_max": 0.001, "precip": 0.02}
+
+    def ranked_trend(series):
+        result = original_trend(series)
+        result["p_value_autocorr"] = p_values[series.name]
+        result["significant"] = result["p_value_autocorr"] < 0.05
+        return result
+
+    monkeypatch.setattr(analysis, "trend", ranked_trend)
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    variable = app.selectbox(key="variable")
+    assert variable.value == "t2m_max"
+    assert variable.options == [
+        "Maximum temperature", "Precipitation", "Average temperature"]
+    assert any("Are the highest temperatures getting hotter?" in item.value
+               for item in app.markdown)
+
+
+def test_inconclusive_result_is_explained_without_claiming_a_trend(analysed, monkeypatch):
+    from src import analysis
+
+    original_trend = analysis.trend
+
+    def inconclusive_trend(series):
+        result = original_trend(series)
+        result["significant"] = False
+        result["p_value_autocorr"] = 0.2
+        return result
+
+    monkeypatch.setattr(analysis, "trend", inconclusive_trend)
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    markdown = [element.value for element in app.markdown]
+    assert any("Inconclusive" in text for text in markdown)
+    assert any("do not establish a clear upward or downward trend" in text for text in markdown)
 
 
 def test_time_frame_is_passed_on_and_a_short_one_gives_a_note(analysed):
@@ -259,8 +313,8 @@ def test_chosen_variable_is_analysed_and_worded_in_its_own_unit(analysed):
     app.selectbox(key="variable").set_value("precip").run()
     assert not app.exception and not app.error
     assert analysed[-1][-1] == "precip"
-    assert app.subheader[0].value.startswith("Precipitation:")
-    metrics = {metric.label: metric.value for metric in app.metric}
-    assert metrics["Change per decade"] == "+0.50 mm/day"
-    assert any("precipitation in this region increased by about 0.50 mm/day per decade" in text.value
-               for text in app.markdown)
+    assert any("Precipitation ·" in element.value for element in app.caption)
+    markdown = [element.value for element in app.markdown]
+    assert any("Is precipitation increasing in this region?" in text for text in markdown)
+    assert any("Estimated trend" in text and "+0.50 mm/day" in text for text in markdown)
+    assert any("Precipitation in this region has increased" in text for text in markdown)
