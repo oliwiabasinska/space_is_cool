@@ -35,11 +35,7 @@ if state.page == "landing":
     st.stop()
 
 st.title("Earth System Trend Detective")
-st.write(
-    "Double-click the map, then drag to draw a region; drag its corners to resize it. "
-    "You can also type the coordinates below the map. The analysis starts on its own "
-    "and updates whenever you change the region, the variable or the time frame."
-)
+st.write("Double-click to draw a region. Optional fine adjustment with coordinates.")
 
 state.setdefault("map_version", 0)
 for field in FIELDS:
