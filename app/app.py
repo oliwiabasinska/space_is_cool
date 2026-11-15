@@ -253,14 +253,52 @@ if result:
         x_title="Year",
     )
     is_precipitation = result["variable"] == "precip"
+    is_light = st.context.theme.type == "light"
     theme = {
-        "accent": "#35e6ff" if is_precipitation else "#ff4d8d",
-        "soft": "#10252b" if is_precipitation else "#291724",
-        "line": "#5aeaff" if is_precipitation else "#ff6b9d",
-        "value": "#9af3ff" if is_precipitation else "#ff91b5",
-        "glow": "rgba(53, 230, 255, 0.2)" if is_precipitation else "rgba(255, 77, 141, 0.2)",
-        "band": "rgba(53, 230, 255, 0.18)" if is_precipitation else "rgba(255, 77, 141, 0.18)",
+        "accent": (
+            "#007c91" if is_precipitation else "#bf3568"
+        ) if is_light else (
+            "#35e6ff" if is_precipitation else "#ff4d8d"
+        ),
+        "soft": (
+            "#e6f5f7" if is_precipitation else "#faeaf0"
+        ) if is_light else (
+            "#10252b" if is_precipitation else "#291724"
+        ),
+        "line": (
+            "#007c91" if is_precipitation else "#bf3568"
+        ) if is_light else (
+            "#5aeaff" if is_precipitation else "#ff6b9d"
+        ),
+        "value": (
+            "#075e6d" if is_precipitation else "#9c2451"
+        ) if is_light else (
+            "#9af3ff" if is_precipitation else "#ff91b5"
+        ),
+        "glow": (
+            "rgba(0, 124, 145, 0.12)" if is_precipitation
+            else "rgba(191, 53, 104, 0.12)"
+        ) if is_light else (
+            "rgba(53, 230, 255, 0.2)" if is_precipitation
+            else "rgba(255, 77, 141, 0.2)"
+        ),
+        "band": (
+            "rgba(0, 124, 145, 0.14)" if is_precipitation
+            else "rgba(191, 53, 104, 0.14)"
+        ) if is_light else (
+            "rgba(53, 230, 255, 0.18)" if is_precipitation
+            else "rgba(255, 77, 141, 0.18)"
+        ),
         "icon": "🌧️" if is_precipitation else "🌡️",
+        "panel": "#ffffff" if is_light else "#10141d",
+        "heading": "#172033" if is_light else "#f8fafc",
+        "text": "#344054" if is_light else "#e2e8f0",
+        "muted": "#526173" if is_light else "#cbd5e1",
+        "interpretation": "#344054" if is_light else "#d4dce8",
+        "plot": "#ffffff" if is_light else "#0b0f17",
+        "grid": "#e4e7ec" if is_light else "#263244",
+        "zero": "#98a2b3" if is_light else "#475569",
+        "insignificant": "#98a2b3" if is_light else "#a8b3c2",
     }
     figure.data[0].update(
         line={"color": theme["accent"], "width": 1.5},
@@ -294,7 +332,7 @@ if result:
         plotting.add_trend_line(
             figure, analysis.trend_line(result["anomalies"], slope),
             trend_label if significant else f"{trend_label} (not significant)",
-            color=theme["line"] if significant else "#a8b3c2",
+            color=theme["line"] if significant else theme["insignificant"],
         )
         observations = result["anomalies"].dropna()
         if not observations.empty:
@@ -303,34 +341,40 @@ if result:
                 x=peak_date, y=float(observations.loc[peak_date]),
                 text=f"Highest anomaly · {peak_date:%Y}",
                 showarrow=True, arrowhead=2, ax=0, ay=-32,
-                font={"size": 10, "color": "#f8fafc"},
-                bgcolor="rgba(10, 15, 23, 0.9)",
+                font={"size": 10, "color": theme["heading"]},
+                bgcolor=theme["panel"],
                 bordercolor=theme["accent"], borderwidth=1, borderpad=4,
             )
 
     figure.update_layout(
-        title=None, template="plotly_dark", height=390, showlegend=False,
-        font={"color": "#e2e8f0"},
+        title=None, template="plotly_white" if is_light else "plotly_dark",
+        height=390, showlegend=False, font={"color": theme["text"]},
         margin={"l": 58, "r": 16, "t": 16, "b": 48},
-        paper_bgcolor="rgba(0, 0, 0, 0)", plot_bgcolor="#0b0f17",
+        paper_bgcolor="rgba(0, 0, 0, 0)", plot_bgcolor=theme["plot"],
     )
     figure.update_xaxes(
-        title_text="Year", tickangle=0, showgrid=True, gridcolor="#263244",
-        zeroline=False, zerolinecolor="#475569",
-        tickfont={"color": "#cbd5e1"}, title_font={"color": "#e2e8f0"},
+        title_text="Year", tickangle=0, showgrid=True, gridcolor=theme["grid"],
+        zeroline=False, zerolinecolor=theme["zero"],
+        tickfont={"color": theme["muted"]}, title_font={"color": theme["text"]},
     )
     figure.update_yaxes(
-        showgrid=True, gridcolor="#263244", zeroline=False,
-        tickfont={"color": "#cbd5e1"}, title_font={"color": "#e2e8f0"},
+        showgrid=True, gridcolor=theme["grid"], zeroline=False,
+        tickfont={"color": theme["muted"]}, title_font={"color": theme["text"]},
     )
 
     if trend:
         question_icon = theme["icon"]
         direction_icon = "✓" if significant else "–"
         evidence_title = "Evidence detected" if significant else "Inconclusive"
-        evidence_color = "#a3ff4d" if significant else "#ffc857"
+        evidence_color = (
+            "#187a30" if significant else "#9a5d00"
+        ) if is_light else (
+            "#a3ff4d" if significant else "#ffc857"
+        )
         evidence_glow = (
-            "rgba(163, 255, 77, 0.18)" if significant else "rgba(255, 200, 87, 0.16)"
+            ("rgba(24, 122, 48, 0.12)" if significant else "rgba(154, 93, 0, 0.12)")
+            if is_light else
+            ("rgba(163, 255, 77, 0.18)" if significant else "rgba(255, 200, 87, 0.16)")
         )
         trend_tooltip = (
             "Sen's slope is the median of pairwise changes over time, expressed per decade. "
@@ -360,7 +404,7 @@ if result:
                     f'box-shadow:0 0 14px {theme["glow"]};">'
                     f'{question_icon}</div>'
                     f'<div style="font-size:1.35rem;font-weight:750;line-height:1.2;'
-                    f'color:#f8fafc;">{question}</div></div>',
+                    f'color:{theme["heading"]};">{question}</div></div>',
                     unsafe_allow_html=True,
                 )
                 st.markdown(
@@ -368,21 +412,21 @@ if result:
                     f'gap:0.65rem;align-items:stretch;">'
                     f'<div style="box-sizing:border-box;min-height:145px;padding:0.9rem;'
                     f'border:1px solid {theme["accent"]};border-radius:0.9rem;'
-                    f'background:#10141d;box-shadow:0 0 0 1px {theme["glow"]},'
+                    f'background:{theme["panel"]};box-shadow:0 0 0 1px {theme["glow"]},'
                     f'0 0 16px {theme["glow"]};">'
-                    f'<div style="font-size:0.84rem;font-weight:700;color:#e2e8f0;">'
+                    f'<div style="font-size:0.84rem;font-weight:700;color:{theme["text"]};">'
                     f'Estimated trend <span title="{trend_tooltip}" '
                     f'aria-label="Trend estimate information" '
                     f'style="cursor:help;color:{theme["accent"]};">ⓘ</span></div>'
                     f'<div style="margin-top:0.55rem;font-size:1.5rem;font-weight:750;'
                     f'line-height:1.1;color:{theme["value"]};">{slope:+.2f} {unit}</div>'
-                    f'<div style="margin-top:0.3rem;font-size:0.82rem;color:#cbd5e1;">'
+                    f'<div style="margin-top:0.3rem;font-size:0.82rem;color:{theme["muted"]};">'
                     f'per decade</div></div>'
                     f'<div style="box-sizing:border-box;min-height:145px;padding:0.9rem;'
                     f'border:1px solid {evidence_color};border-radius:0.9rem;'
-                    f'background:#10141d;box-shadow:0 0 0 1px {evidence_glow},'
+                    f'background:{theme["panel"]};box-shadow:0 0 0 1px {evidence_glow},'
                     f'0 0 16px {evidence_glow};">'
-                    f'<div style="font-size:0.84rem;font-weight:700;color:#e2e8f0;">'
+                    f'<div style="font-size:0.84rem;font-weight:700;color:{theme["text"]};">'
                     f'Statistical evidence <span title="{evidence_tooltip}" '
                     f'aria-label="Statistical evidence information" '
                     f'style="cursor:help;color:{evidence_color};">ⓘ</span></div>'
@@ -390,23 +434,23 @@ if result:
                     f'line-height:1.2;color:{evidence_color};">'
                     f'{direction_icon} {evidence_title}</div>'
                     f'<div style="margin-top:0.45rem;font-size:0.78rem;line-height:1.3;'
-                    f'color:#cbd5e1;">{evidence}</div></div></div>',
+                    f'color:{theme["muted"]};">{evidence}</div></div></div>',
                     unsafe_allow_html=True,
                 )
                 st.markdown(
                     f'<div style="margin-top:1rem;">'
                     f'<div style="margin-bottom:0.4rem;font-size:1rem;font-weight:700;'
-                    f'color:#f8fafc;">What does this mean?</div>'
+                    f'color:{theme["heading"]};">What does this mean?</div>'
                     f'<div style="border-left:3px solid {theme["accent"]};'
                     f'padding:0.1rem 0 0.1rem 0.8rem;font-size:0.9rem;'
-                    f'line-height:1.5;color:#d4dce8;">{interpretation}</div></div>',
+                    f'line-height:1.5;color:{theme["interpretation"]};">{interpretation}</div></div>',
                     unsafe_allow_html=True,
                 )
             with visualization:
                 with st.container(border=True):
                     st.markdown(
                         f'<div style="margin:0.1rem 0 0.1rem;font-size:1.05rem;'
-                        f'font-weight:750;color:#f8fafc;">{chart_title} '
+                        f'font-weight:750;color:{theme["heading"]};">{chart_title} '
                         f'<span title="{chart_tooltip}" aria-label="Chart information" '
                         f'style="cursor:help;font-size:0.85rem;color:{theme["accent"]};">'
                         f'ⓘ</span></div>',
@@ -418,7 +462,7 @@ if result:
                     )
                     st.markdown(
                         f'<div style="display:flex;flex-wrap:wrap;gap:0.8rem;'
-                        f'font-size:0.76rem;color:#cbd5e1;">'
+                        f'font-size:0.76rem;color:{theme["muted"]};">'
                         f'<span><span style="color:{theme["accent"]};">●</span> '
                         f'Monthly observations</span>'
                         f'<span><span style="color:{theme["line"]};">━</span> '

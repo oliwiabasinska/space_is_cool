@@ -234,6 +234,15 @@ def test_selected_region_shows_the_trend_and_the_plot(analysed):
     assert "Highest anomaly" in app.get("plotly_chart")[0].proto.spec
 
 
+def test_analysis_appearance_follows_streamlit_theme_without_a_manual_toggle(analysed):
+    import json
+
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
+    assert not app.radio
+    figure = json.loads(app.get("plotly_chart")[0].proto.spec)
+    assert figure["layout"]["plot_bgcolor"] in {"#0b0f17", "#ffffff"}
+
+
 def test_variable_with_strongest_evidence_is_selected_first(analysed, monkeypatch):
     from src import analysis
 
