@@ -73,7 +73,26 @@ def test_drawn_rectangle_fills_the_fields(monkeypatch):
     assert "latitude 45.8 to 47.8" in app.success[0].value
 
 
-# --- Analyse button ----------------------------------------------------------
+def test_map_script_draws_on_double_click_and_makes_the_region_resizable():
+    import folium
+
+    from src.map_selector import RegionSelector
+
+    def script(corners):
+        world = folium.Map()
+        RegionSelector(corners).add_to(world)
+        return streamlit_folium._get_map_string(world).replace(
+            streamlit_folium.get_full_id(world), "map_div")
+
+    empty = script(None)
+    assert 'map.on("dblclick"' in empty and "doubleClickZoom.disable()" in empty
+    assert "editing.enable()" not in empty
+    selected = script([[45.8, 5.9], [47.8, 10.5]])
+    assert "L.rectangle([[45.8, 5.9], [47.8, 10.5]]" in selected
+    assert "editing.enable()" in selected and 'map.fire("draw:created"' in selected
+
+
+# --- Automatic analysis --------------------------------------------------------
 
 def fake_analysis(calls):
     """A stand-in for run.analyse_region that uses synthetic data, not NASA."""
@@ -125,18 +144,32 @@ def analysed(monkeypatch):
     st.cache_data.clear()
 
 
-def test_analyse_is_disabled_until_a_valid_region_is_selected(analysed):
+def test_nothing_is_analysed_until_a_valid_region_is_selected(analysed):
     app = start()
-    assert app.button(key="analyse").disabled
     app = type_box(app, (30.0, 60.0, 0.0, 10.0))
-    assert app.button(key="analyse").disabled
+    assert analysed == [] and not app.get("plotly_chart")
     app = type_box(app, (45.8, 47.8, 5.9, 10.5))
-    assert not app.button(key="analyse").disabled
+    assert len(analysed) == 1 and len(app.get("plotly_chart")) == 1
 
 
-def test_analyse_shows_the_trend_and_the_plot(analysed):
+def test_there_is_no_analyse_button(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
-    app.button(key="analyse").click().run()
+    assert [button.label for button in app.button] == ["Clear selection"]
+
+
+def test_drawn_rectangle_is_analysed_without_a_click(analysed, monkeypatch):
+    ring = [[5.9, 45.8], [5.9, 47.8], [10.5, 47.8], [10.5, 45.8], [5.9, 45.8]]
+    drawing = {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring]}}
+    monkeypatch.setattr(
+        streamlit_folium, "st_folium",
+        lambda figure, key=None, **options: {"last_active_drawing": drawing if key == "map_0" else None})
+    app = start()
+    assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "t2m")]
+    assert len(app.get("plotly_chart")) == 1
+
+
+def test_selected_region_shows_the_trend_and_the_plot(analysed):
+    app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
     assert not app.exception and not app.error
     assert analysed == [(45.8, 47.8, 5.9, 10.5, 1981, pd_year(), "t2m")]
     metrics = {metric.label: metric.value for metric in app.metric}
@@ -149,8 +182,7 @@ def test_analyse_shows_the_trend_and_the_plot(analysed):
 def test_time_frame_is_passed_on_and_a_short_one_gives_a_note(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
     app.number_input(key="start_year").set_value(2018)
-    app.number_input(key="end_year").set_value(2022)
-    app.button(key="analyse").click().run()
+    app.number_input(key="end_year").set_value(2022).run()
     assert analysed[-1][4:6] == (2018, 2022)
     assert "at least 10 years" in app.warning[0].value
     assert not app.metric
@@ -160,16 +192,15 @@ def test_time_frame_is_passed_on_and_a_short_one_gives_a_note(analysed):
 def test_analysis_errors_are_shown(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
     app.number_input(key="start_year").set_value(2020)
-    app.number_input(key="end_year").set_value(2010)
-    app.button(key="analyse").click().run()
+    app.number_input(key="end_year").set_value(2010).run()
     assert "after the end" in app.error[0].value
     assert not app.get("plotly_chart")
 
 
-def test_result_stays_after_other_interactions_and_clear_removes_it(analysed):
+def test_result_follows_the_time_frame_and_clear_removes_it(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
-    app.button(key="analyse").click().run()
     app.number_input(key="end_year").set_value(2020).run()
+    assert analysed[-1][4:6] == (1981, 2020)
     assert len(app.get("plotly_chart")) == 1
     app.button[0].click().run()
     assert not app.get("plotly_chart")
@@ -184,8 +215,7 @@ def test_chosen_variable_is_analysed_and_worded_in_its_own_unit(analysed):
     app = type_box(start(), (45.8, 47.8, 5.9, 10.5))
     assert app.selectbox(key="variable").options == [
         "Average temperature", "Maximum temperature", "Precipitation"]
-    app.selectbox(key="variable").set_value("precip")
-    app.button(key="analyse").click().run()
+    app.selectbox(key="variable").set_value("precip").run()
     assert not app.exception and not app.error
     assert analysed[-1][-1] == "precip"
     assert app.subheader[0].value.startswith("Precipitation:")
