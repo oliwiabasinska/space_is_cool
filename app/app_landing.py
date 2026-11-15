@@ -9,7 +9,9 @@ def render_landing_page():
     st.markdown(
         """
         <style>
-          html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+          html, body, #root, [data-testid="stApp"], [data-testid="stAppViewContainer"],
+          [data-testid="stMain"], [data-testid="stMainBlockContainer"] {
+            width: 100%;
             height: 100%;
             overflow: hidden;
             background: #080b10;
@@ -21,12 +23,21 @@ def render_landing_page():
             max-width: none;
             padding: 0 !important;
           }
+          [data-testid="stMain"] > div,
+          [data-testid="stMainBlockContainer"] > div,
+          [data-testid="stVerticalBlock"] {
+            width: 100%;
+            max-width: none;
+            padding: 0;
+            margin: 0;
+          }
           [data-testid="stIFrame"] {
             position: fixed;
             inset: 0;
             z-index: 0;
             width: 100vw;
             height: 100vh !important;
+            height: 100dvh !important;
           }
           [data-testid="stIFrame"] iframe {
             width: 100%;
@@ -39,6 +50,7 @@ def render_landing_page():
             bottom: clamp(1rem, 3vh, 2rem);
             z-index: 10;
             width: auto;
+            margin: 0;
           }
           .st-key-explore_button button {
             border: 0;
@@ -46,19 +58,22 @@ def render_landing_page():
             box-shadow: none;
             color: transparent;
             -webkit-text-fill-color: transparent;
-            -webkit-text-stroke: 1.2px #ff3030;
-            text-shadow: 0 0 5px #ff2020, 0 0 12px #ff2020;
-            font-size: 1.35rem;
+            -webkit-text-stroke: 1.5px #ff3030;
+            text-shadow: 0 0 6px #ff2020, 0 0 16px #ff2020;
+            font-size: clamp(1.75rem, 3vw, 2.5rem);
             font-weight: 700;
-            padding: 0.4rem 0.6rem;
+            line-height: 1.2;
+            min-height: 3.5rem;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
           }
           .st-key-explore_button button:hover {
             border: 0;
             background: transparent;
             color: transparent;
             -webkit-text-fill-color: transparent;
-            -webkit-text-stroke: 1.5px #ff5555;
-            text-shadow: 0 0 7px #ff2020, 0 0 18px #ff2020;
+            -webkit-text-stroke: 1.7px #ff5555;
+            text-shadow: 0 0 8px #ff2020, 0 0 20px #ff2020;
           }
           .st-key-explore_button button:focus {
             box-shadow: none;
@@ -73,10 +88,14 @@ def render_landing_page():
         <html>
         <head>
           <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
           <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
           <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
           <style>
-            html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #080b10; }
+            html, body {
+              position: fixed; inset: 0; width: 100%; height: 100%;
+              margin: 0; padding: 0; overflow: hidden; background: #080b10;
+            }
             #world-map { width: 100%; height: 100%; background: #080b10; }
             .leaflet-container { background: #080b10; }
             .coastline-glow {
