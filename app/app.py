@@ -14,6 +14,7 @@ import folium
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
