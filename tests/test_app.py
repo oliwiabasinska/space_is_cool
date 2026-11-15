@@ -30,7 +30,7 @@ def start():
 
 def test_app_opens_on_the_landing_page():
     app = landing()
-    assert [button.label for button in app.button] == ["Explore"]
+    assert [button.label for button in app.button] == ["Explore →"]
     assert not app.title and not app.number_input and not app.info
 
 
